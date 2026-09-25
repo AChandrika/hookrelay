@@ -32,10 +32,21 @@ func (s *Server) Routes() http.Handler {
 	// Tenant API: everything below needs "Authorization: Bearer hr_...".
 	r.Group(func(r chi.Router) {
 		r.Use(s.requireAPIKey)
+
 		r.Post("/v1/endpoints", s.createEndpoint)
 		r.Get("/v1/endpoints", s.listEndpoints)
+		r.Post("/v1/endpoints/{id}/enable", s.enableEndpoint)
+		r.Post("/v1/endpoints/{id}/replay-failed", s.replayFailedForEndpoint)
+
 		r.Post("/v1/events", s.publishEvent)
+		r.Get("/v1/events", s.listEvents)
 		r.Get("/v1/events/{id}", s.getEvent)
+
+		r.Get("/v1/deliveries", s.listDeliveries)
+		r.Get("/v1/deliveries/{id}", s.getDelivery)
+		r.Post("/v1/deliveries/{id}/replay", s.replayDelivery)
+
+		r.Get("/v1/stats", s.stats)
 	})
 	return r
 }

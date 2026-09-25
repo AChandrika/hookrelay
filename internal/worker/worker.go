@@ -261,12 +261,14 @@ func (w *Worker) decide(d store.ClaimedDelivery, r sendResult) store.Outcome {
 	// other 4xx too, since a 401 or 404 is often a receiver misconfiguration
 	// that gets fixed within hours.
 	lastErr := describe(r)
-	attemptNum := d.AttemptCount + 1
-	if attemptNum >= w.cfg.MaxAttempts {
-		msg := fmt.Sprintf("gave up after %d attempts: %s", attemptNum, lastErr)
+	// Count attempts since the last replay, so a replayed delivery gets a fresh
+	// retry budget while its attempt numbers (and history) keep counting up.
+	used := d.AttemptCount + 1 - d.RetryBase
+	if used >= w.cfg.MaxAttempts {
+		msg := fmt.Sprintf("gave up after %d attempts: %s", used, lastErr)
 		return store.Outcome{Status: store.StatusDead, LastError: &msg}
 	}
-	delay := NextDelay(w.cfg.Schedule, attemptNum)
+	delay := NextDelay(w.cfg.Schedule, used)
 	if r.retryAfter > delay {
 		delay = r.retryAfter // the receiver asked us to wait longer; respect it
 	}

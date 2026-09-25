@@ -61,21 +61,24 @@ func TestDecide(t *testing.T) {
 	tests := []struct {
 		name         string
 		prevAttempts int
+		retryBase    int
 		res          sendResult
 		wantStatus   string
 		wantDisable  bool
 	}{
-		{"2xx succeeds", 0, sendResult{statusCode: 204}, store.StatusSucceeded, false},
-		{"500 retries", 0, sendResult{statusCode: 500}, store.StatusPending, false},
-		{"401 retries", 2, sendResult{statusCode: 401}, store.StatusPending, false},
-		{"timeout retries", 0, sendResult{err: errTest}, store.StatusPending, false},
-		{"410 disables endpoint", 0, sendResult{statusCode: 410}, store.StatusDead, true},
-		{"last attempt goes to DLQ", 7, sendResult{statusCode: 500}, store.StatusDead, false},
-		{"3xx is not success", 0, sendResult{statusCode: 302}, store.StatusPending, false},
+		{"2xx succeeds", 0, 0, sendResult{statusCode: 204}, store.StatusSucceeded, false},
+		{"500 retries", 0, 0, sendResult{statusCode: 500}, store.StatusPending, false},
+		{"401 retries", 2, 0, sendResult{statusCode: 401}, store.StatusPending, false},
+		{"timeout retries", 0, 0, sendResult{err: errTest}, store.StatusPending, false},
+		{"410 disables endpoint", 0, 0, sendResult{statusCode: 410}, store.StatusDead, true},
+		{"last attempt goes to DLQ", 7, 0, sendResult{statusCode: 500}, store.StatusDead, false},
+		{"3xx is not success", 0, 0, sendResult{statusCode: 302}, store.StatusPending, false},
+		{"replayed delivery gets fresh retries", 8, 8, sendResult{statusCode: 500}, store.StatusPending, false},
+		{"replayed delivery can die again", 15, 8, sendResult{statusCode: 500}, store.StatusDead, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			o := w.decide(store.ClaimedDelivery{AttemptCount: tc.prevAttempts}, tc.res)
+			o := w.decide(store.ClaimedDelivery{AttemptCount: tc.prevAttempts, RetryBase: tc.retryBase}, tc.res)
 			if o.Status != tc.wantStatus {
 				t.Fatalf("status = %s, want %s", o.Status, tc.wantStatus)
 			}

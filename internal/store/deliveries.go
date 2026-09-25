@@ -22,6 +22,7 @@ const (
 type ClaimedDelivery struct {
 	ID           string
 	AttemptCount int       // attempts made before this one
+	RetryBase    int       // attempt_count when last replayed; retries are counted from here
 	LeaseUntil   time.Time // doubles as a fencing token, see FinishDelivery
 
 	EventID        string
@@ -55,9 +56,9 @@ func (s *Store) ClaimDeliveries(ctx context.Context, limit int, lease time.Durat
 				LIMIT $1
 				FOR UPDATE SKIP LOCKED
 			)
-			RETURNING d.id, d.event_id, d.endpoint_id, d.attempt_count, d.locked_until
+			RETURNING d.id, d.event_id, d.endpoint_id, d.attempt_count, d.retry_base, d.locked_until
 		)
-		SELECT c.id::text, c.attempt_count, c.locked_until,
+		SELECT c.id::text, c.attempt_count, c.retry_base, c.locked_until,
 		       e.id::text, e.event_type, e.payload, e.created_at,
 		       ep.id::text, ep.url, ep.secret, ep.enabled
 		FROM claimed c
@@ -73,7 +74,7 @@ func (s *Store) ClaimDeliveries(ctx context.Context, limit int, lease time.Durat
 	var out []ClaimedDelivery
 	for rows.Next() {
 		var d ClaimedDelivery
-		if err := rows.Scan(&d.ID, &d.AttemptCount, &d.LeaseUntil,
+		if err := rows.Scan(&d.ID, &d.AttemptCount, &d.RetryBase, &d.LeaseUntil,
 			&d.EventID, &d.EventType, &d.Payload, &d.EventCreatedAt,
 			&d.EndpointID, &d.EndpointURL, &d.EndpointSecret, &d.EndpointEnabled); err != nil {
 			return nil, err

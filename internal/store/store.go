@@ -33,9 +33,10 @@ type Endpoint struct {
 	ID         string    `json:"id"`
 	URL        string    `json:"url"`
 	EventTypes []string  `json:"event_types"`
-	Enabled    bool      `json:"enabled"`
-	CreatedAt  time.Time `json:"created_at"`
-	Secret     string    `json:"secret,omitempty"` // only returned when the endpoint is created
+	Enabled        bool      `json:"enabled"`
+	DisabledReason *string   `json:"disabled_reason,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	Secret         string    `json:"secret,omitempty"` // only returned when the endpoint is created
 }
 
 type Event struct {
@@ -122,7 +123,7 @@ func (s *Store) CreateEndpoint(ctx context.Context, tenantID, url, secret string
 // ListEndpoints never returns secrets.
 func (s *Store) ListEndpoints(ctx context.Context, tenantID string) ([]Endpoint, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id::text, url, event_types, enabled, created_at
+		`SELECT id::text, url, event_types, enabled, disabled_reason, created_at
 		 FROM endpoints WHERE tenant_id = $1::uuid ORDER BY created_at`,
 		tenantID,
 	)
@@ -134,7 +135,7 @@ func (s *Store) ListEndpoints(ctx context.Context, tenantID string) ([]Endpoint,
 	out := []Endpoint{}
 	for rows.Next() {
 		var e Endpoint
-		if err := rows.Scan(&e.ID, &e.URL, &e.EventTypes, &e.Enabled, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.URL, &e.EventTypes, &e.Enabled, &e.DisabledReason, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
