@@ -68,3 +68,28 @@ export interface Stats {
   hourly: { hour: string; delivered: number; failed: number }[];
   by_status: Record<DeliveryStatus, number>;
 }
+
+export interface DiagnosisResult {
+  category: string;
+  summary: string;
+  likely_cause: string;
+  suggested_fix: string;
+  confidence: "low" | "medium" | "high";
+  evidence: string[];
+}
+
+export interface Diagnosis {
+  id: string;
+  delivery_id: string;
+  status: "pending" | "running" | "done" | "failed";
+  model?: string;
+  prompt_version?: string;
+  result?: DiagnosisResult;
+  note?: string;
+  cached: boolean;
+  duration_ms?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  created_at: string;
+  updated_at: string;
+}

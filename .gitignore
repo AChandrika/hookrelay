@@ -4,3 +4,5 @@
 /.gotmp/
 node_modules/
 /dashboard/dist/
+eval-results.json
+eval-holdout.json

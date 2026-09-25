@@ -1,4 +1,14 @@
-import type { DeliveryDetail, DeliveryRow, DeliveryStatus, Endpoint, EventRecord, EventSummary, Page, Stats } from "./types";
+import type {
+  DeliveryDetail,
+  DeliveryRow,
+  DeliveryStatus,
+  Diagnosis,
+  Endpoint,
+  EventRecord,
+  EventSummary,
+  Page,
+  Stats,
+} from "./types";
 
 // The API key lives in sessionStorage: it survives a page refresh but is
 // cleared when the tab closes. Any script running on the page could read it
@@ -68,4 +78,14 @@ export const api = {
   endpoints: () => request<{ data: Endpoint[] }>("/v1/endpoints"),
   enableEndpoint: (id: string) => request<Endpoint>(`/v1/endpoints/${id}/enable`, "POST"),
   replayFailed: (id: string) => request<{ replayed: number }>(`/v1/endpoints/${id}/replay-failed`, "POST"),
+  diagnose: (id: string) => request<Diagnosis>(`/v1/deliveries/${id}/diagnose`, "POST"),
+  /** The latest diagnosis, or null if the delivery has never been diagnosed. */
+  diagnosis: async (id: string): Promise<Diagnosis | null> => {
+    try {
+      return await request<Diagnosis>(`/v1/deliveries/${id}/diagnosis`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
 };

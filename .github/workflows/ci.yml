@@ -1,5 +1,5 @@
-# Free on public repos. GitHub sets CI=true, which makes the database tests
-# fail (instead of skip) if Postgres isn't reachable.
+# Free on public repos. GitHub sets CI=true, which makes the database and
+# Redis tests fail (instead of skip) if those services aren't reachable.
 name: ci
 on: [push, pull_request]
 
@@ -18,8 +18,16 @@ jobs:
           --health-cmd "pg_isready -U hookrelay"
           --health-interval 5s
           --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgres://hookrelay:hookrelay@localhost:5432/hookrelay?sslmode=disable
+      REDIS_ADDR: localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -31,6 +39,12 @@ jobs:
           goose -dir migrations postgres "$DATABASE_URL" up
       - run: go vet ./...
       - run: go test -race ./...
+      # Fast check that the rule-based fallback still handles the eval
+      # scenarios. The full model eval is a separate, manual workflow.
+      - name: Diagnosis baseline eval
+        run: |
+          go run ./cmd/eval -rules-only -min-accuracy 0.8
+          go run ./cmd/eval -rules-only -min-accuracy 0.75 -scenarios evals/holdout.json
 
   dashboard:
     runs-on: ubuntu-latest

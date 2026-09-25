@@ -6,6 +6,7 @@
 //	/flaky?fail=N       fails the first N attempts of each webhook-id, then 200
 //	/slow?ms=N          waits N milliseconds, then 200 (test timeouts and crashes)
 //	/verify             checks the signature using the secret set via PUT /_secret
+//	/respond?code=N&body=TEXT   returns status N with that body (for diagnosis demos)
 //	PUT /_secret        body = the endpoint's whsec_ secret
 package main
 
@@ -70,6 +71,17 @@ func main() {
 			w.Header().Set("Retry-After", "10")
 		}
 		http.Error(w, http.StatusText(code), code)
+	})
+
+	mux.HandleFunc("POST /respond", func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		code, err := strconv.Atoi(r.URL.Query().Get("code"))
+		if err != nil || code < 100 || code > 599 {
+			code = http.StatusInternalServerError
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(code)
+		_, _ = io.WriteString(w, r.URL.Query().Get("body"))
 	})
 
 	mux.HandleFunc("POST /flaky", func(w http.ResponseWriter, r *http.Request) {

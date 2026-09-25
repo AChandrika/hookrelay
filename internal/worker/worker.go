@@ -29,6 +29,7 @@ type Config struct {
 	MaxAttempts          int
 	Schedule             []time.Duration
 	AllowPrivateNetworks bool // dev only: lets you deliver to 127.0.0.1
+	AutoDiagnose         bool // queue an AI diagnosis when a delivery fails for good
 }
 
 func DefaultConfig() Config {
@@ -176,6 +177,14 @@ func (w *Worker) process(d store.ClaimedDelivery) {
 	default:
 		log.Info("delivery attempt finished", "outcome", outcome.Status,
 			"http_status", statusOf(attempt), "last_error", deref(outcome.LastError))
+		// Queue a diagnosis when retries run out, so the explanation is ready by
+		// the time someone opens the failed delivery. Skipped when nothing was
+		// sent (disabled endpoint), since there's no attempt to analyze.
+		if w.cfg.AutoDiagnose && outcome.Status == store.StatusDead && attempt != nil {
+			if err := w.store.EnqueueDiagnosisForDelivery(ctx, d.ID, d.EndpointID); err != nil {
+				log.Warn("could not queue diagnosis", "err", err)
+			}
+		}
 	}
 }
 
@@ -285,7 +294,7 @@ func describe(r sendResult) string {
 
 func pickHeaders(h http.Header) json.RawMessage {
 	keep := map[string]string{}
-	for _, k := range []string{"Content-Type", "Content-Length", "Retry-After", "Server"} {
+	for _, k := range []string{"Content-Type", "Content-Length", "Retry-After", "Server", "Location"} {
 		if v := h.Get(k); v != "" {
 			keep[k] = v
 		}

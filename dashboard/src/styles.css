@@ -238,3 +238,32 @@ tbody tr.row-attention td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .stop-dot.tone-ok { background: var(--ok); }
 .stop-dot.tone-bad { background: var(--bad); }
 .stop-dot.tone-info { background: var(--info); }
+
+/* ---------- AI diagnosis ---------- */
+
+.diagnosis {
+  margin-top: 24px; max-width: 760px; padding: 18px 20px; background: var(--surface);
+  border: 1px solid var(--rule); border-left: 3px solid var(--accent); border-radius: 6px;
+  display: grid; gap: 10px; justify-items: start;
+}
+.diagnosis h2 { font-size: 20px; line-height: 1.25; font-weight: 700; }
+.diagnosis-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; width: 100%; }
+.diagnosis-kicker { color: var(--muted); font-size: 14px; }
+.diagnosis-summary { font-size: 16px; max-width: 64ch; }
+.diagnosis-body { margin: 4px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; width: 100%; }
+.diagnosis-body dt { font-weight: 600; font-size: 14px; color: var(--muted); }
+.diagnosis-body dd { margin: 0; max-width: 64ch; }
+.evidence { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.evidence code { background: #f6f8fa; border: 1px solid var(--rule); border-radius: 3px; padding: 1px 6px; overflow-wrap: anywhere; }
+.diagnosis-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; border-top: 1px solid var(--rule); padding-top: 12px; margin-top: 4px; }
+.confidence { font-size: 13px; font-weight: 600; padding: 1px 9px; border-radius: 999px; white-space: nowrap; }
+.confidence-high { background: var(--ok-tint); color: var(--ok); }
+.confidence-medium { background: var(--info-tint); color: var(--info); }
+.confidence-low { background: var(--warn-tint); color: var(--warn); }
+.note-warn { background: var(--warn-tint); color: var(--warn); margin: 0; font-size: 14px; }
+
+@media (max-width: 760px) {
+  .diagnosis-body { grid-template-columns: 1fr; gap: 2px; }
+  .diagnosis-body dd { margin-bottom: 8px; }
+  .diagnosis-foot { flex-direction: column; align-items: flex-start; }
+}

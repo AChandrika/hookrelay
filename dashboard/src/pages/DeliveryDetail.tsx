@@ -4,6 +4,7 @@ import { ErrorNote, Loading, notify, PageHeader, StatusBadge } from "../componen
 import { absoluteTime, prettyBody, relativeTime } from "../lib/format";
 import { useAsync } from "../lib/hooks";
 import type { Attempt, DeliveryRow } from "../types";
+import DiagnosisPanel from "./DiagnosisPanel";
 
 // The delivery page reads like a parcel tracking page: the current state at
 // the top, every attempt below it, newest first, back to when the event arrived.
@@ -47,6 +48,8 @@ export default function DeliveryDetail({ id }: { id: string }) {
         </span>
       </p>
       {error && <ErrorNote error={error} onRetry={reload} />}
+
+      <DiagnosisPanel delivery={d} hasAttempts={attempts.length > 0} />
 
       <section className="section" aria-labelledby="history-title">
         <h2 id="history-title">Delivery history</h2>

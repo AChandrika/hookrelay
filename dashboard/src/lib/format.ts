@@ -49,3 +49,21 @@ export function prettyBody(body: string): string {
     return body;
   }
 }
+
+/** Plain-language names for diagnosis categories. */
+export const categoryLabel: Record<string, string> = {
+  auth_failure: "Signature or credentials rejected",
+  endpoint_not_found: "URL not found",
+  endpoint_gone: "Endpoint removed",
+  payload_rejected: "Payload rejected",
+  rate_limited: "Rate limited",
+  receiver_error: "Receiver crashed",
+  receiver_overloaded: "Receiver unavailable",
+  firewall_blocked: "Blocked by a firewall",
+  timeout: "Receiver too slow",
+  connection_refused: "Connection refused",
+  dns_failure: "Hostname not found",
+  tls_error: "Certificate problem",
+  blocked_destination: "Private address blocked",
+  unknown: "Unclear cause",
+};
