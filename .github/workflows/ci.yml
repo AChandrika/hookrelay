@@ -1,0 +1,33 @@
+# Free on public repos. GitHub sets CI=true, which makes the database tests
+# fail (instead of skip) if Postgres isn't reachable.
+name: ci
+on: [push, pull_request]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hookrelay
+          POSTGRES_PASSWORD: hookrelay
+          POSTGRES_DB: hookrelay
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hookrelay"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://hookrelay:hookrelay@localhost:5432/hookrelay?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Migrate
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@latest
+          goose -dir migrations postgres "$DATABASE_URL" up
+      - run: go vet ./...
+      - run: go test -race ./...
