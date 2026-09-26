@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"hookrelay/internal/metrics"
 	"hookrelay/internal/signing"
 	"hookrelay/internal/store"
 )
@@ -68,6 +69,7 @@ func New(s *store.Store, cfg Config, log *slog.Logger) *Worker {
 // never sit waiting while their lease ticks down.
 func (w *Worker) Run(ctx context.Context) error {
 	go w.reapLoop(ctx)
+	go w.statsLoop(ctx)
 
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, w.cfg.Concurrency)
@@ -142,6 +144,28 @@ func (w *Worker) reapLoop(ctx context.Context) {
 	}
 }
 
+// statsLoop publishes queue depth as a gauge every 15 seconds.
+func (w *Worker) statsLoop(ctx context.Context) {
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for {
+		q, err := w.store.QueueStats(ctx)
+		if err == nil {
+			metrics.Queue.WithLabelValues("due").Set(float64(q.Due))
+			metrics.Queue.WithLabelValues("scheduled").Set(float64(q.Scheduled))
+			metrics.Queue.WithLabelValues("in_flight").Set(float64(q.InFlight))
+			metrics.Queue.WithLabelValues("dead").Set(float64(q.Dead))
+		} else if ctx.Err() == nil {
+			w.log.Warn("queue stats failed", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
 func sleep(ctx context.Context, d time.Duration) {
 	select {
 	case <-ctx.Done():
@@ -154,6 +178,8 @@ func sleep(ctx context.Context, d time.Duration) {
 func (w *Worker) process(d store.ClaimedDelivery) {
 	ctx, cancel := context.WithTimeout(context.Background(), w.cfg.RequestTimeout+10*time.Second)
 	defer cancel()
+	metrics.InFlight.Inc()
+	defer metrics.InFlight.Dec()
 	log := w.log.With("delivery_id", d.ID, "event_id", d.EventID, "url", d.EndpointURL, "attempt", d.AttemptCount+1)
 
 	var attempt *store.AttemptRecord
@@ -170,11 +196,13 @@ func (w *Worker) process(d store.ClaimedDelivery) {
 	err := w.store.FinishDelivery(ctx, d, attempt, outcome)
 	switch {
 	case errors.Is(err, store.ErrLeaseLost):
+		metrics.DeliveryAttempts.WithLabelValues("lease_lost").Inc()
 		log.Warn("lease lost; another worker owns this delivery now, discarding result")
 	case err != nil:
 		// The row stays in_flight; the reaper will requeue it after the lease expires.
 		log.Error("could not record result", "err", err)
 	default:
+		recordAttempt(d, attempt, outcome)
 		log.Info("delivery attempt finished", "outcome", outcome.Status,
 			"http_status", statusOf(attempt), "last_error", deref(outcome.LastError))
 		// Queue a diagnosis when retries run out, so the explanation is ready by
@@ -185,6 +213,18 @@ func (w *Worker) process(d store.ClaimedDelivery) {
 				log.Warn("could not queue diagnosis", "err", err)
 			}
 		}
+	}
+}
+
+func recordAttempt(d store.ClaimedDelivery, attempt *store.AttemptRecord, o store.Outcome) {
+	label := map[string]string{store.StatusSucceeded: "succeeded", store.StatusPending: "retry", store.StatusDead: "dead"}[o.Status]
+	metrics.DeliveryAttempts.WithLabelValues(label).Inc()
+	if attempt == nil {
+		return
+	}
+	metrics.DeliveryDuration.WithLabelValues(label).Observe(attempt.Duration.Seconds())
+	if o.Status == store.StatusSucceeded && d.AttemptCount == 0 {
+		metrics.DeliveryLag.Observe(time.Since(d.EventCreatedAt).Seconds())
 	}
 }
 

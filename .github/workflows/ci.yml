@@ -60,3 +60,10 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
       - run: npm run build   # type-checks with tsc, then bundles with Vite
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Proves every image still builds, including the dashboard's.
+      - run: docker compose build migrate api worker mockreceiver dashboard

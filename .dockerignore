@@ -1,0 +1,7 @@
+.git
+bin
+*.exe
+.gotmp
+dashboard/node_modules
+dashboard/dist
+eval-*.json

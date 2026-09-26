@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -20,6 +21,13 @@ import (
 
 func getenv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func getenvInt(key string, fallback int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
 		return v
 	}
 	return fallback
@@ -68,6 +76,8 @@ func main() {
 		Addr: addr,
 		Handler: (&api.Server{
 			Store: store.New(pool), Limiter: limiter, AdminToken: adminToken, Log: logger,
+			PublishLimit:  getenvInt("PUBLISH_LIMIT_PER_MINUTE", 600),
+			DiagnoseLimit: getenvInt("DIAGNOSE_LIMIT_PER_MINUTE", 10),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}

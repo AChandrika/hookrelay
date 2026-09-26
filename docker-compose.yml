@@ -1,3 +1,17 @@
+# The whole system with one command:  docker compose up -d --build
+#
+#   Dashboard   http://127.0.0.1:8081
+#   API         http://127.0.0.1:8080
+#   Grafana     http://127.0.0.1:3000
+#   Prometheus  http://127.0.0.1:9090
+#
+# Tools (run on demand):
+#   docker compose run --rm k6 run /scripts/publish.js
+#   docker compose run --rm eval
+name: hookrelay
+
+x-db-url: &db-url postgres://hookrelay:hookrelay@postgres:5432/hookrelay?sslmode=disable
+
 services:
   postgres:
     image: postgres:16
@@ -5,23 +19,124 @@ services:
       POSTGRES_DB: hookrelay
       POSTGRES_USER: hookrelay
       POSTGRES_PASSWORD: hookrelay
-    ports:
-      - "5433:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+    ports: ["5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hookrelay -d hookrelay"]
+      interval: 3s
+      retries: 20
 
   redis:
     image: redis:8-alpine
-    ports:
-      - "6379:6379"
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
 
   ollama:
     image: ollama/ollama
-    ports:
-      - "11434:11434"
+    ports: ["11434:11434"]
+    volumes: [ollama:/root/.ollama]
+
+  # Downloads the model the first time, then exits. Later runs finish instantly.
+  ollama-pull:
+    image: ollama/ollama
+    environment:
+      OLLAMA_HOST: ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:1.7b}
+    entrypoint: ["/bin/sh", "-c", "until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull $$OLLAMA_MODEL"]
+    depends_on: [ollama]
+    restart: "no"
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment:
+      GOOSE_DBSTRING: *db-url
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: { context: ., target: api }
+    environment:
+      DATABASE_URL: *db-url
+      REDIS_ADDR: redis:6379
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+      PUBLISH_LIMIT_PER_MINUTE: ${PUBLISH_LIMIT_PER_MINUTE:-600}
+    ports: ["8080:8080"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Two workers share one queue through FOR UPDATE SKIP LOCKED.
+  worker:
+    build: { context: ., target: worker }
+    deploy: { replicas: 2 }
+    environment:
+      DATABASE_URL: *db-url
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:1.7b}
+      # Demo settings: the mock receiver lives on Docker's private network,
+      # and fast retries let a delivery reach the DLQ in about 4 minutes.
+      ALLOW_PRIVATE_NETWORKS: "true"
+      FAST_RETRIES: ${FAST_RETRIES:-true}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      ollama: { condition: service_started }
+    restart: unless-stopped
+
+  mockreceiver:
+    build: { context: ., target: mockreceiver }
+    ports: ["8090:8090"]
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    ports: ["8081:80"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus
+    ports: ["9090:9090"]
+    volumes: [./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
+
+  grafana:
+    image: grafana/grafana-oss
+    ports: ["3000:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"      # view dashboards without logging in (local demo only)
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     volumes:
-      - ollama:/root/.ollama
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana:/var/lib/grafana
+    depends_on: [prometheus]
+
+  # ---------- Tools: only run when asked for ----------
+
+  k6:
+    image: grafana/k6
+    profiles: ["tools"]
+    volumes: [./loadtest:/scripts:ro]
+    environment:
+      API_URL: http://api:8080
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-dev-admin-token}
+      RECEIVER_URL: http://mockreceiver:8090/ok
+      RATE: ${RATE:-200}
+      DURATION: ${DURATION:-1m}
+
+  eval:
+    build: { context: ., target: eval }
+    profiles: ["tools"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:1.7b}
+    depends_on: [ollama]
 
 volumes:
   pgdata:
   ollama:
+  grafana:

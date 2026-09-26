@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"hookrelay/internal/keys"
+	"hookrelay/internal/metrics"
 	"hookrelay/internal/store"
 )
 
@@ -146,6 +147,9 @@ func (s *Server) publishEvent(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusCreated
 	if res.Replayed {
 		status = http.StatusOK // same key again: return the original, create nothing
+	} else {
+		metrics.EventsPublished.Inc()
+		metrics.DeliveriesCreated.Add(float64(res.DeliveriesCreated))
 	}
 	writeJSON(w, status, res)
 }

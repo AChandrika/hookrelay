@@ -3,7 +3,7 @@
 //	eval.exe                                   # rules, the model, and the model + checks
 //	eval.exe -rules-only                       # fast, no model (used in CI)
 //	eval.exe -scenarios evals/holdout.json     # held-out set, not used to design the checks
-//	eval.exe -model qwen3:4b                   # compare another model
+//	eval.exe -model qwen3:4b                   # compare another model (default qwen3:1.7b)
 //
 // Three systems are scored side by side. "rules" is the baseline. The raw
 // model shows what the LLM does on its own. "+checks" is what production
@@ -54,7 +54,7 @@ type Outcome struct {
 
 func main() {
 	file := flag.String("scenarios", "evals/scenarios.json", "scenario file")
-	model := flag.String("model", envOr("OLLAMA_MODEL", "qwen3:4b"), "Ollama model")
+	model := flag.String("model", envOr("OLLAMA_MODEL", "qwen3:1.7b"), "Ollama model")
 	url := flag.String("ollama", envOr("OLLAMA_URL", "http://127.0.0.1:11434"), "Ollama URL")
 	rulesOnly := flag.Bool("rules-only", false, "skip the model; score the rules baseline only")
 	minAcc := flag.Float64("min-accuracy", 0, "exit 1 if the production system's accuracy is below this (0-1)")

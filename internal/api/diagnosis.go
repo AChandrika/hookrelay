@@ -54,7 +54,7 @@ func (s *Server) getDiagnosis(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rateLimit(name string, limit int, window time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if s.Limiter == nil {
+			if s.Limiter == nil || limit <= 0 {
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -178,3 +178,21 @@ func (s *Store) ReapExpired(ctx context.Context) (int64, error) {
 	}
 	return tag.RowsAffected(), nil
 }
+
+type QueueStats struct {
+	Due, Scheduled, InFlight, Dead int
+}
+
+// QueueStats counts deliveries that aren't finished. Succeeded rows are
+// excluded up front, since they're the vast majority over time.
+func (s *Store) QueueStats(ctx context.Context) (QueueStats, error) {
+	var q QueueStats
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE status = 'pending' AND next_attempt_at <= now()),
+		       count(*) FILTER (WHERE status = 'pending' AND next_attempt_at > now()),
+		       count(*) FILTER (WHERE status = 'in_flight'),
+		       count(*) FILTER (WHERE status = 'dead')
+		FROM deliveries WHERE status <> 'succeeded'`,
+	).Scan(&q.Due, &q.Scheduled, &q.InFlight, &q.Dead)
+	return q, err
+}

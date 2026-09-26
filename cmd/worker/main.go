@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -12,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"hookrelay/internal/diagnosis"
+	"hookrelay/internal/metrics"
 	"hookrelay/internal/store"
 	"hookrelay/internal/worker"
 )
@@ -55,6 +58,18 @@ func main() {
 	}
 	st := store.New(pool)
 
+	// Metrics on a separate port: the worker has no other HTTP server, and this
+	// keeps /metrics off anything customer-facing. In Docker, set METRICS_ADDR=:9091.
+	metricsAddr := getenv("METRICS_ADDR", "127.0.0.1:9091")
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metrics.Handler())
+		srv := &http.Server{Addr: metricsAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("metrics server", "err", err)
+		}
+	}()
+
 	// AI diagnosis: DIAGNOSIS=off disables it; OLLAMA_URL=none uses rules only.
 	if os.Getenv("DIAGNOSIS") != "off" {
 		cfg.AutoDiagnose = true
@@ -63,7 +78,7 @@ func main() {
 			Lease: 4 * time.Minute, CacheTTL: 24 * time.Hour, Poll: 2 * time.Second,
 		}
 		if url := getenv("OLLAMA_URL", "http://127.0.0.1:11434"); url != "none" {
-			runner.LLM = diagnosis.NewClient(url, getenv("OLLAMA_MODEL", "qwen3:4b"))
+			runner.LLM = diagnosis.NewClient(url, getenv("OLLAMA_MODEL", "qwen3:1.7b"))
 			checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			if err := runner.LLM.Check(checkCtx); err != nil {
 				logger.Warn("AI diagnosis will fall back to rules until this is fixed", "err", err)

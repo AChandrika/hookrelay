@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"hookrelay/internal/metrics"
 	"hookrelay/internal/store"
 )
 
@@ -81,6 +82,7 @@ func (r *Runner) process(job store.DiagnosisJob) {
 			log.Warn("cache lookup failed", "err", err)
 		} else if ok {
 			out.Result, out.Cached = cached, true
+			metrics.Diagnoses.WithLabelValues("cache").Inc()
 			r.complete(ctx, job, out, log)
 			return
 		}
@@ -89,7 +91,11 @@ func (r *Runner) process(job store.DiagnosisJob) {
 		res, usage, err = r.LLM.Diagnose(ctx, in)
 		out.DurationMS = int(usage.Duration.Milliseconds())
 		out.PromptTokens, out.CompletionTokens = usage.PromptTokens, usage.CompletionTokens
+		metrics.DiagnosisDuration.Observe(usage.Duration.Seconds())
+		metrics.DiagnosisTokens.WithLabelValues("prompt").Add(float64(usage.PromptTokens))
+		metrics.DiagnosisTokens.WithLabelValues("completion").Add(float64(usage.CompletionTokens))
 		if err != nil {
+			metrics.Diagnoses.WithLabelValues("rules_fallback").Inc()
 			log.Warn("model diagnosis failed, using rules", "err", err)
 			note := "The AI model was unavailable or returned invalid output, so this is the rule-based diagnosis. (" + err.Error() + ")"
 			out.Note, out.Model = &note, "rules"
@@ -102,7 +108,10 @@ func (r *Runner) process(job store.DiagnosisJob) {
 			res, notes, usedRules = Check(in, res)
 			if usedRules {
 				out.Model = "rules"
+				metrics.Diagnoses.WithLabelValues("rules_check").Inc()
 				log.Info("model answer failed the plausibility check", "notes", notes)
+			} else {
+				metrics.Diagnoses.WithLabelValues("model").Inc()
 			}
 			if len(notes) > 0 {
 				note := strings.Join(notes, " ")
@@ -110,6 +119,7 @@ func (r *Runner) process(job store.DiagnosisJob) {
 			}
 		}
 	} else {
+		metrics.Diagnoses.WithLabelValues("rules").Inc()
 		res = Rules(in)
 	}
 
