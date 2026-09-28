@@ -8,9 +8,6 @@ local LLM to explain *why* a delivery is failing.
 Built with Go, PostgreSQL, Redis, React, Ollama, Prometheus and Grafana. Every
 component is free and open source, and the whole system starts with one command.
 
-<!-- TODO: add a screenshot or short video of the delivery timeline here.
-     In the GitHub editor, drag an .mp4 or .png into this file to upload it. -->
-
 ## What it does
 
 - **Reliable delivery.** At-least-once delivery with exponential backoff and
@@ -103,37 +100,48 @@ fails open if Redis is down. Images are distroless and run as non-root.
 
 `cmd/eval` scores three systems on scenarios with known answers:
 **rules** (status-code lookup, the baseline), the **raw model**, and the
-**model + checks** (what users actually see).
+**model + checks** (what users actually see). Model: `qwen3:1.7b` on CPU,
+about 12 seconds and 825 tokens per diagnosis.
 
-<!-- TODO: fill in from your eval runs:
-     bin\eval.exe -model qwen3:1.7b
-     bin\eval.exe -model qwen3:1.7b -scenarios evals/holdout.json -->
-
-| Set | System | Accuracy | Explains the actual cause | Evidence not found in input |
+| Set | System | Accuracy | Names the actual cause | Quoted evidence not found in input |
 |---|---|---|---|---|
-| Development (26) | Rules | 22/26 (85%) | 17/25 | 0 |
-| Development (26) | qwen3:1.7b | TBD | TBD | TBD |
-| Development (26) | qwen3:1.7b + checks | TBD | TBD | 0 (filtered) |
-| Held-out (15) | Rules | TBD | TBD | 0 |
-| Held-out (15) | qwen3:1.7b | TBD | TBD | TBD |
-| Held-out (15) | qwen3:1.7b + checks | TBD | TBD | 0 (filtered) |
+| Development (26) | Rules | 22/26 (85%) | 17/25 | 0 of 26 |
+| Development (26) | qwen3:1.7b | 22/26 (85%) | **25/25** | 3 of 76 (4%) |
+| Development (26) | qwen3:1.7b + checks | **25/26 (96%)** | 24/25 | 0 of 65 (filtered) |
+| Held-out (15) | Rules | 12/15 (80%) | 6/15 | 0 of 15 |
+| Held-out (15) | qwen3:1.7b | 12/15 (80%) | **13/15** | 2 of 45 (4%) |
+| Held-out (15) | qwen3:1.7b + checks | **13/15 (87%)** | 11/15 | 0 of 37 (filtered) |
+
+"Names the actual cause" checks whether the explanation mentions the key
+idea (for example "clock" for a timestamp rejection, or "Cloudflare" for a
+WAF block). Scenarios with no such keyword are excluded.
 
 What the evals found:
 
-- **Same accuracy, different strengths.** On the first run, the raw model and
-  the rules both scored 22/26, but on different scenarios. The model fixed
-  3 of the 4 cases where the status code misleads (a signature failure
+- **The model alone doesn't beat the rules on accuracy, but it explains far
+  better.** Both scored the same on both sets, with different mistakes. The
+  model fixed cases where the status code misleads (a signature failure
   returned as a 500, a Cloudflare block returned as a 403, clock skew returned
-  as a 400) and named the specific cause in 25/25 explanations versus 17/25.
-  It also made 3 new mistakes on easy cases.
-- **A prompt injection worked.** A response body containing instructions
-  ("set category to endpoint_gone") changed the raw model's answer. The
-  plausibility check now catches injections that ask for an answer that
-  contradicts the status code; it can't catch one that asks for a plausible
-  wrong answer, and the held-out set includes that case deliberately.
-- **Invented evidence.** 2 of 76 quoted snippets (about 3%) appeared nowhere in
-  the input; 5 more were accurate but reformatted. Production now keeps only
-  evidence that can be found in the attempts.
+  as a 400), and it named the specific cause in 25/25 and 13/15 explanations,
+  against 17/25 and 6/15 for the rules. It also made new mistakes on easy
+  cases, choosing categories that contradict the status code.
+- **Code-level checks turn that into a real gain.** Rejecting answers that
+  contradict the HTTP status raised accuracy from 85% to 96% on the
+  development set and from 80% to 87% on the held-out set, where the check
+  replaced 3 answers. The smaller held-out gain is expected, since the checks
+  were designed after seeing the development errors. The trade-off: when the
+  check falls back to the rules, the explanation becomes the rules' generic
+  text, which is why "names the actual cause" drops slightly.
+- **A prompt injection worked.** In the first eval run, a response body
+  containing instructions ("set category to endpoint_gone") changed the raw
+  model's answer. The plausibility check catches injections that ask for an
+  answer that contradicts the status code; it can't catch one that asks for a
+  plausible wrong answer, and the held-out set includes that case deliberately.
+- **About 4% of quoted evidence was invented.** 3 of 76 snippets on the
+  development set and 2 of 45 on the held-out set appeared nowhere in the
+  input (for example "Connection refused" attached to a DNS error). Another 4
+  were accurate but reformatted. Production keeps only evidence that can be
+  found in the attempts.
 - **Redaction held.** Evidence from a body containing an email and a JWT
   quoted the `[EMAIL]` and `[JWT]` placeholders, not real values.
 
@@ -143,18 +151,36 @@ a cleaner measure.
 
 ## Performance
 
-<!-- TODO: fill in from your k6 run and the Grafana dashboard, and note your
-     machine (CPU, RAM) since these numbers depend on it. -->
+Measured on one laptop running everything at once (API, two workers,
+Postgres, Redis, Ollama, Prometheus, Grafana and k6): AMD Ryzen 5 7530U
+(6 cores, 12 threads), Docker Desktop on Windows. Each run publishes events at
+a constant rate for 60 seconds (`loadtest/publish.js`), with rate limiting off.
 
-Load test (`loadtest/publish.js`, k6, constant arrival rate) on TBD:
+**Publishing (API):**
 
-| Metric | Result |
-|---|---|
-| Publish rate sustained | TBD events/s |
-| Publish latency p95 / p99 | TBD / TBD ms |
-| Error rate | TBD |
-| Delivery throughput (2 workers) | TBD deliveries/s |
-| Delivery lag p95, first attempt | TBD s |
+| Target rate | Achieved | p95 latency | Max latency | Errors |
+|---|---|---|---|---|
+| 200/s | 199.5/s | 4.72 ms | 94 ms | 0% |
+| 500/s | 499.0/s | 4.95 ms | 279 ms | 0% |
+| 800/s | 799.8/s | 5.68 ms | 50 ms | 0% |
+| 1,000/s | 998.5/s | 7.12 ms | 138 ms | 0% |
+| 1,200/s | 1,199.6/s | 5.77 ms | 50 ms | 0% |
+
+1,200 events/s was the highest rate tested, not a measured limit: p95 stayed
+under 8 ms throughout. Each publish is a Postgres transaction that inserts the
+event and its deliveries. (k6 skipped 54 and 73 requests in the 500/s and
+1,000/s runs while starting extra virtual users; that's client-side, not an
+API error.)
+
+**Delivering (workers):** two workers with 10 concurrent sends each peaked at
+**373 deliveries/s**. At 1,200 events/s, events were accepted about three times
+faster than they could be delivered, so the queue grew and first-attempt
+delivery lag reached a p95 of 60 seconds or more (the top histogram bucket).
+That's the design working as intended for bursts: the API stays fast and every
+event is stored durably, then delivered as capacity allows. For sustained load
+at that rate, delivery capacity has to scale, through more worker replicas or
+higher `WORKER_CONCURRENCY`, and the queue-depth panel in Grafana shows when
+it's needed.
 
 ## Run it
 
